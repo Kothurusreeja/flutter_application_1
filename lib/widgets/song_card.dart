@@ -57,12 +57,24 @@ class SongCard extends StatelessWidget {
                             colors: [Color(0xFF9C6BFF), Color(0xFFFF5C8A)],
                           ),
                         ),
-                        child: Center(
-                          child: Text(
-                            song.emoji,
-                            style: const TextStyle(fontSize: 27),
-                          ),
-                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: song.artworkUrl == null
+                            ? Center(
+                                child: Text(
+                                  song.emoji,
+                                  style: const TextStyle(fontSize: 27),
+                                ),
+                              )
+                            : Image.network(
+                                song.artworkUrl!,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Center(
+                                  child: Text(
+                                    song.emoji,
+                                    style: const TextStyle(fontSize: 27),
+                                  ),
+                                ),
+                              ),
                       ),
                       const SizedBox(width: 15),
                       Expanded(
@@ -81,6 +93,16 @@ class SongCard extends StatelessWidget {
                               song.artist,
                               style: const TextStyle(color: Colors.white54),
                             ),
+                            if (song.durationSeconds != null) ...[
+                              const SizedBox(height: 3),
+                              Text(
+                                _formatDuration(song.durationSeconds!),
+                                style: const TextStyle(
+                                  color: Colors.white38,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                       ),
@@ -91,9 +113,7 @@ class SongCard extends StatelessWidget {
                             : 'Add to Favorites',
                         onPressed: () async {
                           try {
-                            await favoritesController.toggleFavorite(
-                              song.identifier,
-                            );
+                            await favoritesController.toggleFavorite(song);
                           } catch (error) {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -131,4 +151,10 @@ class SongCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDuration(int seconds) {
+  final minutes = seconds ~/ 60;
+  final remainder = (seconds % 60).toString().padLeft(2, '0');
+  return '$minutes:$remainder';
 }

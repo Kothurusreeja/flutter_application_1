@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../controllers/favorites_controller.dart';
 import '../controllers/recently_played_controller.dart';
 import '../data/music_data.dart';
 import '../models/song.dart';
+import '../services/audius_search_service.dart';
 import '../services/recommendation_service.dart';
 import '../widgets/search_field.dart';
 import '../widgets/song_card.dart';
@@ -12,7 +15,14 @@ import 'now_playing_screen.dart';
 import 'recently_played_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  final AudiusSearchService? audiusSearchService;
+  final RecommendationService? recommendationService;
+
+  const HomeScreen({
+    super.key,
+    this.audiusSearchService,
+    this.recommendationService,
+  });
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -21,23 +31,37 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final RecentlyPlayedController _recentlyPlayedController =
       RecentlyPlayedController.instance;
-  final List<Song> _featuredRecommendations =
-      RecommendationService.getRandomRecommendations();
+  late final RecommendationService _recommendationService;
+  late final AudiusSearchService _audiusSearchService;
   final TextEditingController _searchController = TextEditingController();
+  Timer? _searchDebounce;
   String _searchQuery = '';
   String? _selectedRecommendationMood;
+  List<Song> _audiusSearchResults = [];
+  List<Song> _recommendedSongs = [];
+  bool _isSearchLoading = false;
+  bool _isRecommendationsLoading = true;
+  String? _searchError;
+  String? _recommendationError;
 
   @override
   void initState() {
     super.initState();
+    _recommendationService =
+        widget.recommendationService ?? RecommendationService();
+    _audiusSearchService = widget.audiusSearchService ?? AudiusSearchService();
     _recentlyPlayedController.addListener(_handleRecentlyPlayedChange);
     FavoritesController.instance.loadFavorites();
     _recentlyPlayedController.loadRecentlyPlayed();
+    _loadRecommendations();
   }
 
   @override
   void dispose() {
     _recentlyPlayedController.removeListener(_handleRecentlyPlayedChange);
+    _searchDebounce?.cancel();
+    _audiusSearchService.dispose();
+    _recommendationService.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -47,7 +71,87 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _updateSearch(String value) {
-    setState(() => _searchQuery = value.trim().toLowerCase());
+    final query = value.trim();
+    _searchDebounce?.cancel();
+    setState(() {
+      _searchQuery = query.toLowerCase();
+      _audiusSearchResults = [];
+      _searchError = null;
+      _isSearchLoading = query.isNotEmpty;
+    });
+    if (query.isEmpty) return;
+    _searchDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () => _searchAudius(query),
+    );
+  }
+
+  Future<void> _searchAudius(String query) async {
+    try {
+      final songs = await _audiusSearchService.searchTracks(query);
+      if (mounted && _searchQuery == query.toLowerCase()) {
+        setState(() {
+          _audiusSearchResults = songs;
+          _isSearchLoading = false;
+        });
+      }
+    } on AudiusApiException catch (error) {
+      if (mounted && _searchQuery == query.toLowerCase()) {
+        setState(() {
+          _searchError = error.message;
+          _isSearchLoading = false;
+        });
+      }
+    } catch (error) {
+      if (mounted && _searchQuery == query.toLowerCase()) {
+        setState(() {
+          _searchError = 'Audius search failed. Please try again.';
+          _isSearchLoading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadRecommendations() async {
+    if (mounted) {
+      setState(() {
+        _isRecommendationsLoading = true;
+        _recommendationError = null;
+      });
+    }
+    try {
+      final songs = _selectedRecommendationMood == null
+          ? await _recommendationService.getRandomRecommendations()
+          : await _recommendationService.getRecommendationsByMood(
+              _selectedRecommendationMood!,
+            );
+      if (mounted) {
+        setState(() {
+          _recommendedSongs = songs;
+          _isRecommendationsLoading = false;
+        });
+      }
+    } on AudiusApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _recommendationError = error.message;
+          _isRecommendationsLoading = false;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _recommendationError =
+              'Could not load Audius recommendations. Please try again.';
+          _isRecommendationsLoading = false;
+        });
+      }
+    }
+  }
+
+  void _selectRecommendationMood(String? mood) {
+    setState(() => _selectedRecommendationMood = mood);
+    _loadRecommendations();
   }
 
   List<Song> get filteredSongs {
@@ -75,22 +179,12 @@ class _HomeScreenState extends State<HomeScreen> {
           (song) => '${song.title.toLowerCase()}|${song.artist.toLowerCase()}',
         )
         .toSet();
-    final recommendationMatches =
-        RecommendationService.searchRecommendations(query).where((song) {
-          return !existingSongKeys.contains(
-            '${song.title.toLowerCase()}|${song.artist.toLowerCase()}',
-          );
-        });
-    return [...existingMatches, ...recommendationMatches];
-  }
-
-  List<Song> get recommendedSongs {
-    if (_selectedRecommendationMood == null) {
-      return _featuredRecommendations;
-    }
-    return RecommendationService.getRecommendationsByMood(
-      _selectedRecommendationMood!,
-    );
+    final audiusMatches = _audiusSearchResults.where((song) {
+      return !existingSongKeys.contains(
+        '${song.title.toLowerCase()}|${song.artist.toLowerCase()}',
+      );
+    });
+    return [...existingMatches, ...audiusMatches];
   }
 
   void openSong(BuildContext context, Song song, {bool autoPlay = false}) {
@@ -174,8 +268,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 15),
+              if (_isSearchLoading)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: LinearProgressIndicator(),
+                ),
+              if (_searchError != null) _emptyMessage(_searchError!),
               if (displaySongs.isEmpty)
-                _emptyMessage('No songs found')
+                _emptyMessage(
+                  _isSearchLoading
+                      ? 'Searching Audius…'
+                      : _searchError ?? 'No songs found',
+                )
               else
                 ...displaySongs.map(
                   (song) => SongCard(
@@ -244,8 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   if (_selectedRecommendationMood != null)
                     TextButton(
-                      onPressed: () =>
-                          setState(() => _selectedRecommendationMood = null),
+                      onPressed: () => _selectRecommendationMood(null),
                       child: const Text('Clear'),
                     ),
                 ],
@@ -267,22 +370,40 @@ class _HomeScreenState extends State<HomeScreen> {
                       return ChoiceChip(
                         label: Text('${mood.$1} ${mood.$2}'),
                         selected: isSelected,
-                        onSelected: (_) => setState(
-                          () => _selectedRecommendationMood = isSelected
-                              ? null
-                              : mood.$2,
+                        onSelected: (_) => _selectRecommendationMood(
+                          isSelected ? null : mood.$2,
                         ),
                       );
                     }).toList(),
               ),
               const SizedBox(height: 15),
-              ...recommendedSongs.map(
-                (song) => SongCard(
-                  song: song,
-                  onTap: () => openSong(context, song),
-                  onPlay: () => openSong(context, song, autoPlay: true),
+              if (_isRecommendationsLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (_recommendationError != null)
+                Column(
+                  children: [
+                    _emptyMessage(_recommendationError!),
+                    TextButton(
+                      onPressed: _loadRecommendations,
+                      child: const Text('Try recommendations again'),
+                    ),
+                  ],
+                )
+              else if (_recommendedSongs.isEmpty)
+                _emptyMessage(
+                  _selectedRecommendationMood == null
+                      ? 'No Audius recommendations available right now.'
+                      : 'No Audius tracks found for '
+                            '$_selectedRecommendationMood right now.',
+                )
+              else
+                ..._recommendedSongs.map(
+                  (song) => SongCard(
+                    song: song,
+                    onTap: () => openSong(context, song),
+                    onPlay: () => openSong(context, song, autoPlay: true),
+                  ),
                 ),
-              ),
               const SizedBox(height: 14),
               const Text(
                 'Recently Played',

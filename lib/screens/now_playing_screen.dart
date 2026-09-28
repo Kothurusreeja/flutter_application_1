@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../controllers/favorites_controller.dart';
 import '../controllers/recently_played_controller.dart';
 import '../models/song.dart';
+import '../services/audius_search_service.dart';
 
 class NowPlayingScreen extends StatefulWidget {
   final Song song;
@@ -21,6 +22,7 @@ class NowPlayingScreen extends StatefulWidget {
 
 class _NowPlayingScreenState extends State<NowPlayingScreen> {
   final AudioPlayer player = AudioPlayer();
+  final AudiusSearchService _audiusService = AudiusSearchService();
 
   Duration duration = Duration.zero;
   Duration position = Duration.zero;
@@ -32,6 +34,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   @override
   void initState() {
     super.initState();
+    duration = Duration(seconds: widget.song.durationSeconds ?? 0);
 
     player.onDurationChanged.listen((newDuration) {
       if (mounted) {
@@ -75,7 +78,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   }
 
   Future<void> _loadSong() async {
-    if (widget.song.file == null) {
+    if (widget.song.file == null && widget.song.audiusTrackId == null) {
       setState(() {
         isLoading = false;
         errorMessage = 'No playable audio is available for this song.';
@@ -84,7 +87,14 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
     }
 
     try {
-      await player.setSource(AssetSource('songs/${widget.song.file}'));
+      final trackId = widget.song.audiusTrackId;
+      if (trackId != null) {
+        await player.setSource(
+          UrlSource(_audiusService.streamUri(trackId).toString()),
+        );
+      } else {
+        await player.setSource(AssetSource('songs/${widget.song.file}'));
+      }
       if (!mounted) return;
       setState(() {
         isLoading = false;
@@ -97,7 +107,9 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
       if (!mounted) return;
       setState(() {
         isLoading = false;
-        errorMessage = 'Unable to load song.';
+        errorMessage = widget.song.isAudiusTrack
+            ? 'This Audius track is currently unavailable to stream.'
+            : 'Unable to load song.';
       });
     }
   }
@@ -152,6 +164,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
   @override
   void dispose() {
     player.dispose();
+    _audiusService.dispose();
     super.dispose();
   }
 
@@ -187,7 +200,7 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                   final messenger = ScaffoldMessenger.of(context);
                   try {
                     await FavoritesController.instance.toggleFavorite(
-                      widget.song.identifier,
+                      widget.song,
                     );
                   } catch (error) {
                     if (mounted) {
@@ -240,12 +253,24 @@ class _NowPlayingScreenState extends State<NowPlayingScreen> {
                         ),
                       ],
                     ),
-                    child: Center(
-                      child: Text(
-                        widget.song.emoji,
-                        style: const TextStyle(fontSize: 100),
-                      ),
-                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: widget.song.artworkUrl == null
+                        ? Center(
+                            child: Text(
+                              widget.song.emoji,
+                              style: const TextStyle(fontSize: 100),
+                            ),
+                          )
+                        : Image.network(
+                            widget.song.artworkUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Center(
+                              child: Text(
+                                widget.song.emoji,
+                                style: const TextStyle(fontSize: 100),
+                              ),
+                            ),
+                          ),
                   ),
                   const SizedBox(height: 35),
                   Text(

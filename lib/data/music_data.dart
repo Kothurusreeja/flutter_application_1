@@ -61,6 +61,7 @@ const List<MoodOption> moods = [
   MoodOption(name: 'Energetic', emoji: '⚡', color: Color(0xFFFF6B6B)),
   MoodOption(name: 'Romantic', emoji: '❤️', color: Color(0xFFFF5C8A)),
   MoodOption(name: 'Sad', emoji: '🌧️', color: Color(0xFF7C83FD)),
+  MoodOption(name: 'Focus', emoji: '📚', color: Color(0xFF6AB7A8)),
 ];
 
 List<Song> songsForMood(String mood) {

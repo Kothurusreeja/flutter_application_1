@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_application_1/services/recently_played_service.dart';
-import 'package:flutter_application_1/services/recommendation_service.dart';
+import 'package:flutter_application_1/models/song.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -12,7 +12,17 @@ void main() {
 
   test('history is newest first, unique, and persistent', () async {
     final service = RecentlyPlayedService();
-    final songs = RecommendationService.getAllRecommendations();
+    final songs = List.generate(
+      23,
+      (index) => Song(
+        id: 'audius:$index',
+        audiusTrackId: '$index',
+        title: 'Song $index',
+        artist: 'Artist',
+        album: 'Album',
+        mood: '',
+      ),
+    );
     final songA = songs[0];
     final songB = songs[1];
     final songC = songs[2];
@@ -28,6 +38,8 @@ void main() {
       songC.identifier,
       songA.identifier,
     ]);
+    expect(reloaded.first.title, songB.title);
+    expect(reloaded.first.audiusTrackId, songB.audiusTrackId);
     expect(
       reloaded.map((song) => song.identifier).toSet(),
       hasLength(reloaded.length),
@@ -36,7 +48,17 @@ void main() {
 
   test('history can be removed, cleared, and is limited to 20 songs', () async {
     final service = RecentlyPlayedService();
-    final songs = RecommendationService.getAllRecommendations();
+    final songs = List.generate(
+      23,
+      (index) => Song(
+        id: 'audius:$index',
+        audiusTrackId: '$index',
+        title: 'Song $index',
+        artist: 'Artist',
+        album: 'Album',
+        mood: '',
+      ),
+    );
     for (final song in songs.take(23)) {
       await service.addRecentlyPlayed(song);
     }

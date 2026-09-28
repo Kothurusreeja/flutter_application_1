@@ -126,7 +126,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   onDismissed: (_) async {
                     final messenger = ScaffoldMessenger.of(context);
                     try {
-                      await _controller.toggleFavorite(song.identifier);
+                      await _controller.toggleFavorite(song);
                     } catch (error) {
                       if (mounted) {
                         messenger.showSnackBar(
